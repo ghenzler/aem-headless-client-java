@@ -120,6 +120,15 @@ public class AEMHeadlessClientBuilder {
 		return this;
 	}
 
+	/**
+	 * Creates a Query Builder with this client pre-configured.
+	 * 
+	 * @return query builder
+	 */
+	public GraphQlQueryBuilder queryBuilder() {
+		return GraphQlQuery.builder().client(build());
+	}
+
 	public @NotNull AEMHeadlessClient build() {
 		assertNotSealed();
 		sealed = true;

@@ -126,7 +126,7 @@ class AEMHeadlessClientTest {
 
 		URI endpoint = new URI(DEFAULT_ENDPOINT);
 
-		String expectedQuery = aemHeadlessClient.createQuery(QUERY, null);
+		String expectedQuery = aemHeadlessClient.createQueryRequestPayload(QUERY, null);
 		doReturn(RESPONSE_NO_ERRORS).when(aemHeadlessClient).executeRequest(endpoint, AEMHeadlessClient.METHOD_POST,
 				expectedQuery, 200);
 
@@ -146,7 +146,7 @@ class AEMHeadlessClientTest {
 
 		Map<String, Object> vars = new HashMap<>();
 		vars.put("prop", "test");
-		String expectedQuery = aemHeadlessClient.createQuery(QUERY_WITH_VAR, vars);
+		String expectedQuery = aemHeadlessClient.createQueryRequestPayload(QUERY_WITH_VAR, vars);
 
 		doReturn(RESPONSE_NO_ERRORS).when(aemHeadlessClient).executeRequest(endpoint, AEMHeadlessClient.METHOD_POST,
 				expectedQuery, 200);
@@ -165,7 +165,7 @@ class AEMHeadlessClientTest {
 
 		URI endpoint = new URI(DEFAULT_ENDPOINT);
 
-		String expectedQuery = aemHeadlessClient.createQuery(QUERY, null);
+		String expectedQuery = aemHeadlessClient.createQueryRequestPayload(QUERY, null);
 		doReturn(RESPONSE_ERRORS).when(aemHeadlessClient).executeRequest(endpoint, AEMHeadlessClient.METHOD_POST,
 				expectedQuery, 200);
 
@@ -186,7 +186,7 @@ class AEMHeadlessClientTest {
 
 		URI endpoint = new URI(DEFAULT_ENDPOINT);
 
-		String expectedQuery = aemHeadlessClient.createQuery(QUERY, null);
+		String expectedQuery = aemHeadlessClient.createQueryRequestPayload(QUERY, null);
 		doReturn(RESPONSE_ERRORS_AND_DATA).when(aemHeadlessClient).executeRequest(endpoint,
 				AEMHeadlessClient.METHOD_POST, expectedQuery, 200);
 
@@ -310,7 +310,7 @@ class AEMHeadlessClientTest {
 
 		URI endpoint = new URI("http://localhost:4502/content/graphql/global/endpoint.json");
 
-		String expectedQuery = aemHeadlessClient.createQuery(QUERY, null);
+		String expectedQuery = aemHeadlessClient.createQueryRequestPayload(QUERY, null);
 		String response = aemHeadlessClient.executeRequest(endpoint, AEMHeadlessClient.METHOD_POST, expectedQuery, 200);
 		assertEquals(RESPONSE_NO_ERRORS, response);
 		assertEquals(expectedQuery, requestEntityOutputStream.toString(StandardCharsets.UTF_8.name()));
@@ -336,7 +336,7 @@ class AEMHeadlessClientTest {
 
 		URI endpoint = new URI("http://localhost:4502/content/graphql/global/endpoint.json");
 
-		String expectedQuery = aemHeadlessClient.createQuery(QUERY, null);
+		String expectedQuery = aemHeadlessClient.createQueryRequestPayload(QUERY, null);
 		aemHeadlessClient.executeRequest(endpoint, AEMHeadlessClient.METHOD_POST, expectedQuery, 200);
 
 		verify(httpURLConnection).setRequestProperty(AEMHeadlessClient.HEADER_ACCEPT,
@@ -365,7 +365,7 @@ class AEMHeadlessClientTest {
 
 		AEMHeadlessClientException thrownException = assertThrows(AEMHeadlessClientException.class, () -> {
 			aemHeadlessClient.executeRequest(endpoint, AEMHeadlessClient.METHOD_POST,
-					aemHeadlessClient.createQuery(QUERY, null), 200);
+					aemHeadlessClient.createQueryRequestPayload(QUERY, null), 200);
 		});
 
 		assertNull(thrownException.getGraphQlResponse());

@@ -28,6 +28,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -45,7 +46,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  */
 public class AEMHeadlessClient {
 
-	static final String ENDPOINT_DEFAULT_GRAPHQL = "/content/graphql/global/endpoint.json";
+	static final String ENDPOINT_DEFAULT_GRAPHQL = "/content/cq:graphql/global/endpoint.json";
+
 	static final String ENDPOINT_PERSISTED_QUERIES_PERSIST = "/graphql/persist.json";
 	static final String ENDPOINT_PERSISTED_QUERIES_EXECUTE = "/graphql/execute.json";
 	static final String ENDPOINT_PERSISTED_QUERIES_LIST = "/graphql/list.json/";
@@ -68,6 +70,9 @@ public class AEMHeadlessClient {
 	static final String JSON_KEY_SHORT_FORM = "shortForm";
 	static final String JSON_KEY_SHORT_PATH = "shortPath";
 	static final String JSON_KEY_DATA = "data";
+	static final String JSON_KEY_ITEMS = "items";
+	static final String JSON_KEY_EDGES = "edges";
+	static final String JSON_KEY_NODE = "node";
 	static final String JSON_KEY_ERRORS = "errors";
 	static final String JSON_KEY_MESSAGE = "message";
 	static final String JSON_KEY_PATH = "path";
@@ -132,9 +137,45 @@ public class AEMHeadlessClient {
 	 */
 	public @NotNull GraphQlResponse runQuery(@NotNull String query, Map<String, Object> variables) {
 
-		String queryStr = createQuery(query, variables);
+		String queryPayload = createQueryRequestPayload(query, variables);
 
-		String responseStr = executeRequest(endpoint, METHOD_POST, queryStr, 200);
+		String responseStr = executeRequest(endpoint, METHOD_POST, queryPayload, 200);
+
+		JsonNode responseJson = stringToJson(responseStr);
+		GraphQlResponse graphQlResponse = new GraphQlResponse(responseJson);
+		if (graphQlResponse.hasErrors()) {
+			throw new AEMHeadlessClientException(graphQlResponse);
+		}
+		return graphQlResponse;
+	}
+
+	public @NotNull GraphQlResponse runQuery(@NotNull GraphQlQuery query) {
+		return runQuery(query, null);
+	}
+
+	public @NotNull GraphQlResponse runQuery(@NotNull GraphQlQuery query, Map<String, Object> variables) {
+		return runQuery(query, variables, null);
+	}
+
+	public @NotNull GraphQlResponse runQuery(@NotNull GraphQlQuery query, Map<String, Object> variables, Long offset) {
+		return runQuery(query, variables, null, null);
+	}
+
+	public @NotNull GraphQlResponse runQuery(@NotNull GraphQlQuery query, Map<String, Object> variables, Long offset,
+			Long limit) {
+
+		Map<String, Object> topLevelQueryArguments = new HashMap<>();
+		if (offset != null) {
+			topLevelQueryArguments.put("offset", offset);
+		}
+		if (limit != null) {
+			topLevelQueryArguments.put("limit", limit);
+		}
+
+		String queryStr = query.generateQuery(false, topLevelQueryArguments);
+		String queryPayload = createQueryRequestPayload(queryStr, variables);
+
+		String responseStr = executeRequest(endpoint, METHOD_POST, queryPayload, 200);
 
 		JsonNode responseJson = stringToJson(responseStr);
 		GraphQlResponse graphQlResponse = new GraphQlResponse(responseJson);
@@ -267,6 +308,15 @@ public class AEMHeadlessClient {
 				responseJson.get(JSON_KEY_PATH).asText(), queryToPersist);
 	}
 
+	/**
+	 * Build a query to be used with this client.
+	 * 
+	 * @return a query builder
+	 */
+	public GraphQlQueryBuilder queryBuilder() {
+		return GraphQlQuery.builder().client(this);
+	}
+
 	URI getEndpoint() {
 		return endpoint;
 	}
@@ -303,7 +353,7 @@ public class AEMHeadlessClient {
 		this.readTimeout = readTimeout;
 	}
 
-	String createQuery(String query, Map<String, Object> variables) {
+	String createQueryRequestPayload(String query, Map<String, Object> variables) {
 		ObjectMapper mapper = new ObjectMapper();
 		ObjectNode queryNode = mapper.createObjectNode();
 		queryNode.put(JSON_KEY_QUERY, query);
@@ -411,4 +461,5 @@ public class AEMHeadlessClient {
 	private static boolean isBlank(final CharSequence cs) {
 		return cs == null || cs.chars().allMatch(Character::isWhitespace);
 	}
+
 }

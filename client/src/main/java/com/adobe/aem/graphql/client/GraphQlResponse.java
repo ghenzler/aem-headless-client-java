@@ -27,7 +27,10 @@ import java.util.stream.Collectors;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 
 /**
  * The client {@link AEMHeadlessClient} returns this class for the operations
@@ -40,6 +43,8 @@ public class GraphQlResponse {
 
 	private final JsonNode data;
 	private final List<Error> errors;
+
+	private JsonNode items = null;
 
 	GraphQlResponse(JsonNode response) {
 		super();
@@ -70,6 +75,64 @@ public class GraphQlResponse {
 	 */
 	public @Nullable JsonNode getData() {
 		return data;
+	}
+
+	/**
+	 * @return the response items if found at JSON path "data" -> "...List" ->
+	 *         "items" or null if no items could be found in response.
+	 */
+	public @Nullable JsonNode getItems() {
+
+		if (items == null) {
+			Iterator<JsonNode> elements = data.elements();
+			while (elements.hasNext()) {
+				JsonNode resultNode = elements.next();
+				if (resultNode.has(AEMHeadlessClient.JSON_KEY_ITEMS)) {
+					items = resultNode.get(AEMHeadlessClient.JSON_KEY_ITEMS);
+					break;
+				}
+				if (resultNode.has(AEMHeadlessClient.JSON_KEY_EDGES)) {
+					JsonNode edgesNode = resultNode.get(AEMHeadlessClient.JSON_KEY_EDGES);
+					ArrayNode resultArrayNode = new ObjectMapper().createArrayNode();
+					for (JsonNode node : (ArrayNode) edgesNode) {
+						resultArrayNode.add(node.get(AEMHeadlessClient.JSON_KEY_NODE));
+					}
+					items = resultArrayNode;
+					break;
+				}
+			}
+		}
+		return items;
+	}
+
+	/**
+	 * Gets list of items mapped to given class (use Jackson annotations to define
+	 * the mapping).
+	 * 
+	 * @param <T>   the type of the items returned
+	 * @param clazz the class of the items returned
+	 * @return the list of items
+	 */
+	public @Nullable <T> List<T> getItems(Class<T> clazz) {
+
+		ObjectMapper mapper = new ObjectMapper();
+
+		List<T> result = new ArrayList<>();
+		for (JsonNode jsonNode : getItems()) {
+			try {
+				result.add(mapper.treeToValue(jsonNode, clazz));
+			} catch (JsonProcessingException | IllegalArgumentException e) {
+				throw new IllegalStateException("Could not convert item " + jsonNode + " to class " + clazz, e);
+			}
+		}
+		return result;
+	}
+
+	/**
+	 * @return if the result has items
+	 */
+	public boolean hasItems() {
+		return getItems() != null && !((ArrayNode) getItems()).isEmpty();
 	}
 
 	/**
