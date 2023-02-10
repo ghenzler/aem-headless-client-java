@@ -27,7 +27,10 @@ import java.util.stream.Collectors;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 
 /**
  * The client {@link AEMHeadlessClient} returns this class for the operations
@@ -41,11 +44,54 @@ public class GraphQlResponse {
 	private final JsonNode data;
 	private final List<Error> errors;
 
+	private final JsonNode items;
+	private JsonNode pageInfo;
+
 	GraphQlResponse(JsonNode response) {
-		super();
 		this.data = response.get(JSON_KEY_DATA);
 		this.errors = readErrors(response);
+		this.items = loadItems();
 	}
+	
+	private List<Error> readErrors(JsonNode response) {
+		if (response.has(JSON_KEY_ERRORS)) {
+			List<Error> errors = new ArrayList<>();
+			Iterator<JsonNode> errorsJsonIt = response.get(JSON_KEY_ERRORS).iterator();
+			while (errorsJsonIt.hasNext()) {
+				JsonNode errorJson = errorsJsonIt.next();
+				errors.add(new Error(errorJson));
+			}
+			return errors;
+		} else {
+			return null;
+		}
+	}
+	
+	private JsonNode loadItems() {
+		JsonNode items = null;
+		if(data != null) {
+			Iterator<JsonNode> elements = data.elements();
+			while (elements.hasNext()) {
+				JsonNode resultNode = elements.next();
+				if (resultNode.has(AEMHeadlessClient.JSON_KEY_ITEMS)) {
+					items = resultNode.get(AEMHeadlessClient.JSON_KEY_ITEMS);
+					break;
+				}
+				if (resultNode.has(AEMHeadlessClient.JSON_KEY_EDGES)) {
+					JsonNode edgesNode = resultNode.get(AEMHeadlessClient.JSON_KEY_EDGES);
+					ArrayNode resultArrayNode = new ObjectMapper().createArrayNode();
+					for (JsonNode node : (ArrayNode) edgesNode) {
+						resultArrayNode.add(node.get(AEMHeadlessClient.JSON_KEY_NODE));
+					}
+					items = resultArrayNode;
+					pageInfo = resultNode.get(AEMHeadlessClient.JSON_KEY_PAGE_INFO);
+					break;
+				}
+			}			
+		}
+		return items;
+	}
+
 
 	/**
 	 * @return the String representation of the response.
@@ -73,6 +119,44 @@ public class GraphQlResponse {
 	}
 
 	/**
+	 * @return the response items if found at JSON path "data" -> "...List" ->
+	 *         "items" or null if no items could be found in response.
+	 */
+	public @Nullable JsonNode getItems() {
+		return items;
+	}
+
+	/**
+	 * Gets list of items mapped to given class (use Jackson annotations to define
+	 * the mapping).
+	 * 
+	 * @param <T>   the type of the items returned
+	 * @param clazz the class of the items returned
+	 * @return the list of items
+	 */
+	public @Nullable <T> List<T> getItems(Class<T> clazz) {
+
+		ObjectMapper mapper = new ObjectMapper();
+
+		List<T> result = new ArrayList<>();
+		for (JsonNode jsonNode : getItems()) {
+			try {
+				result.add(mapper.treeToValue(jsonNode, clazz));
+			} catch (JsonProcessingException | IllegalArgumentException e) {
+				throw new IllegalStateException("Could not convert item " + jsonNode + " to class " + clazz, e);
+			}
+		}
+		return result;
+	}
+
+	/**
+	 * @return if the result has items
+	 */
+	public boolean hasItems() {
+		return this.items != null && !((ArrayNode) this.items).isEmpty();
+	}
+
+	/**
 	 * @return true if the server sent errors as part of the GraphQL response.
 	 */
 	public boolean hasErrors() {
@@ -85,20 +169,6 @@ public class GraphQlResponse {
 	 */
 	public @Nullable List<Error> getErrors() {
 		return errors;
-	}
-
-	private List<Error> readErrors(JsonNode response) {
-		if (response.has(JSON_KEY_ERRORS)) {
-			List<Error> errors = new ArrayList<>();
-			Iterator<JsonNode> errorsJsonIt = response.get(JSON_KEY_ERRORS).iterator();
-			while (errorsJsonIt.hasNext()) {
-				JsonNode errorJson = errorsJsonIt.next();
-				errors.add(new Error(errorJson));
-			}
-			return errors;
-		} else {
-			return null;
-		}
 	}
 
 	String getErrorsString() {
@@ -137,6 +207,66 @@ public class GraphQlResponse {
 			return error;
 		}
 
+	}
+	
+	
+	public interface Cursor {
+		public GraphQlResponse next();
+		public boolean hasNext();
+	}
+
+	static class CursorImpl implements Cursor {
+
+		
+		private final String query;
+		private final String persistedQueryShortPath;
+		private final int pageSize;
+		private final GraphQlQueryVars variables;
+
+		private final AEMHeadlessClient client;
+		
+		private boolean hasMore = true;
+		private String endCursor;
+
+		CursorImpl(@NotNull String query, boolean isPersistedQuery, int pageSize, GraphQlQueryVars variables, AEMHeadlessClient client) {
+			this.query = !isPersistedQuery ? query : null;
+			this.persistedQueryShortPath = isPersistedQuery ? query : null;
+			this.pageSize = pageSize;
+			this.variables = variables;
+			this.client = client;
+		}
+
+
+		@Override
+		public boolean hasNext() {
+			return hasMore;
+		}	
+		
+		@Override
+		public GraphQlResponse next() {
+			
+			if(!hasMore) {
+				throw new IllegalStateException("There are no more results availalbe");
+			}
+			
+			GraphQlQueryVars effectiveVars = GraphQlQueryVars.create(variables).first(pageSize).after(endCursor);
+
+			GraphQlResponse response;
+			if(query != null) {
+				response = client.runQuery(query, effectiveVars);	
+			} else {
+				response = client.runPersistedQuery(persistedQueryShortPath, effectiveVars);
+			}
+			
+			if(response.pageInfo == null) {
+				throw new IllegalStateException("Query does not support paging with a cursor, could not find 'pageInfo' in response data:\n" + response.data);
+			}
+			
+			hasMore = response.pageInfo.get(AEMHeadlessClient.JSON_KEY_HAS_NEXT_PAGE).asBoolean();
+			endCursor = response.pageInfo.get(AEMHeadlessClient.JSON_KEY_END_CURSOR).asText();
+			
+			return response;
+		}
 	}
 
 }

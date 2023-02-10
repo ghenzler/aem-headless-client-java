@@ -45,7 +45,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  */
 public class AEMHeadlessClient {
 
-	static final String ENDPOINT_DEFAULT_GRAPHQL = "/content/graphql/global/endpoint.json";
+	static final String ENDPOINT_DEFAULT_GRAPHQL = "/content/cq:graphql/global/endpoint.json";
+
 	static final String ENDPOINT_PERSISTED_QUERIES_PERSIST = "/graphql/persist.json";
 	static final String ENDPOINT_PERSISTED_QUERIES_EXECUTE = "/graphql/execute.json";
 	static final String ENDPOINT_PERSISTED_QUERIES_LIST = "/graphql/list.json/";
@@ -68,6 +69,13 @@ public class AEMHeadlessClient {
 	static final String JSON_KEY_SHORT_FORM = "shortForm";
 	static final String JSON_KEY_SHORT_PATH = "shortPath";
 	static final String JSON_KEY_DATA = "data";
+	static final String JSON_KEY_ITEMS = "items";
+	static final String JSON_KEY_EDGES = "edges";
+	static final String JSON_KEY_PAGE_INFO = "pageInfo";
+	static final String JSON_KEY_HAS_NEXT_PAGE = "hasNextPage";
+	static final String JSON_KEY_END_CURSOR = "endCursor";
+	
+	static final String JSON_KEY_NODE = "node";
 	static final String JSON_KEY_ERRORS = "errors";
 	static final String JSON_KEY_MESSAGE = "message";
 	static final String JSON_KEY_PATH = "path";
@@ -123,6 +131,18 @@ public class AEMHeadlessClient {
 	}
 
 	/**
+	 * Runs the query with the paging variables. Expects 'offset' and 'limit' to exist as query variable, {@link GraphQlQueryBuilder} helps creating query in the correct format.
+	 * 
+	 * @param query
+	 * @param offset
+	 * @param limit
+	 * @return
+	 */
+	public @NotNull GraphQlResponse runQuery(@NotNull String query, int offset, int limit) {
+		return runQuery(query, GraphQlQueryVars.create().offset(offset).limit(limit));
+	}
+	
+	/**
 	 * Runs the given GraphQL query on server.
 	 * 
 	 * @param query     the query to execute
@@ -132,9 +152,9 @@ public class AEMHeadlessClient {
 	 */
 	public @NotNull GraphQlResponse runQuery(@NotNull String query, Map<String, Object> variables) {
 
-		String queryStr = createQuery(query, variables);
+		String queryPayload = createQueryRequestPayload(query, variables);
 
-		String responseStr = executeRequest(endpoint, METHOD_POST, queryStr, 200);
+		String responseStr = executeRequest(endpoint, METHOD_POST, queryPayload, 200);
 
 		JsonNode responseJson = stringToJson(responseStr);
 		GraphQlResponse graphQlResponse = new GraphQlResponse(responseJson);
@@ -143,7 +163,7 @@ public class AEMHeadlessClient {
 		}
 		return graphQlResponse;
 	}
-
+	
 	/**
 	 * Lists all persisted queries for the given configuration name.
 	 * 
@@ -248,7 +268,7 @@ public class AEMHeadlessClient {
 	}
 
 	/**
-	 * Adds a new persisted query on the server.
+	 * Adds a new persisted query on the server. Usually it is better to deploy persisted queries along with the code with filevault packages.
 	 * 
 	 * @param queryToPersist     the query
 	 * @param persistedQueryPath the path to persist the query, e.g.
@@ -266,7 +286,24 @@ public class AEMHeadlessClient {
 		return new PersistedQuery(responseJson.get(JSON_KEY_SHORT_PATH).asText(),
 				responseJson.get(JSON_KEY_PATH).asText(), queryToPersist);
 	}
+	
 
+	public @NotNull GraphQlResponse.Cursor createCursor(@NotNull String query, int pageSize) {
+		return new GraphQlResponse.CursorImpl(query, false, pageSize, GraphQlQueryVars.create(), this);
+	}
+
+	public @NotNull GraphQlResponse.Cursor createCursor(@NotNull String query, int pageSize, Map<String, Object> variables) {
+		return new GraphQlResponse.CursorImpl(query, false, pageSize, GraphQlQueryVars.create(variables), this);
+	}
+
+	public @NotNull GraphQlResponse.Cursor createPersistedQueryCursor(@NotNull String persistedQueryPath, int pageSize) {
+		return new GraphQlResponse.CursorImpl(persistedQueryPath, true, pageSize, GraphQlQueryVars.create(), this);
+	}
+
+	public @NotNull GraphQlResponse.Cursor createPersistedQueryCursor(@NotNull String persistedQueryPath, int pageSize, Map<String, Object> variables) {
+		return new GraphQlResponse.CursorImpl(persistedQueryPath, true, pageSize, GraphQlQueryVars.create(variables), this);
+	}
+	
 	URI getEndpoint() {
 		return endpoint;
 	}
@@ -303,11 +340,12 @@ public class AEMHeadlessClient {
 		this.readTimeout = readTimeout;
 	}
 
-	String createQuery(String query, Map<String, Object> variables) {
+	String createQueryRequestPayload(String query, Map<String, Object> variables) {
 		ObjectMapper mapper = new ObjectMapper();
 		ObjectNode queryNode = mapper.createObjectNode();
 		queryNode.put(JSON_KEY_QUERY, query);
 		if (variables != null) {
+			GraphQlQueryVars.checkQueryForVars(query, variables.keySet());
 			queryNode.set(JSON_KEY_VARIABLES, mapper.valueToTree(variables));
 		}
 		return queryNode.toString();
@@ -411,4 +449,5 @@ public class AEMHeadlessClient {
 	private static boolean isBlank(final CharSequence cs) {
 		return cs == null || cs.chars().allMatch(Character::isWhitespace);
 	}
+
 }
